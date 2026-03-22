@@ -9,6 +9,87 @@ import Modal from '@/app/components/Modal';
 import PricingModal from '@/app/components/PricingModal';
 
 const ALL = 'All';
+const STORAGE_KEY = 'webvanguard_crm_leads';
+
+const SEED_LEADS: Lead[] = [
+  {
+    id: 'lead_001',
+    businessName: 'Lumière Wellness Studio',
+    sector: 'Spa/Beauty',
+    contactName: 'Sophie Laurent',
+    phone: '+971 50 123 4567',
+    email: 'sophie@lumierewellness.ae',
+    instagram: '@lumierewellnessdubai',
+    source: 'Instagram',
+    level: 'Hot',
+    status: 'Contacted',
+    demoUrl: 'https://lumiere-wellness.vercel.app',
+    proposalUrl: 'https://webvanguardai.github.io/proposal-lumiere',
+    assignedPlan: 'Growth',
+    priceQuoted: 4500,
+    lastContact: '2026-03-20',
+    notes: 'Very interested. Said she\'ll review the demo this weekend. Follow up Monday.',
+    createdAt: '2026-03-15T10:00:00.000Z',
+  },
+  {
+    id: 'lead_002',
+    businessName: 'Apex Properties Dubai',
+    sector: 'Real Estate',
+    contactName: 'Ahmed Al Mansoori',
+    phone: '+971 55 987 6543',
+    email: 'ahmed@apexproperties.ae',
+    instagram: '@apexpropertiesdxb',
+    source: 'Google Maps',
+    level: 'Warm',
+    status: 'Contacted',
+    demoUrl: 'https://apex-properties.vercel.app',
+    proposalUrl: 'https://webvanguardai.github.io/proposal-apex-properties',
+    assignedPlan: 'Premium',
+    priceQuoted: 8000,
+    lastContact: '2026-03-14',
+    notes: 'Met at a networking event. Has an old website but wants a full rebrand. Budget is flexible.',
+    createdAt: '2026-03-10T09:00:00.000Z',
+  },
+  {
+    id: 'lead_003',
+    businessName: 'Al Bayt Restaurant',
+    sector: 'Restaurant',
+    contactName: 'Omar Khalid',
+    phone: '+971 4 321 9876',
+    email: '',
+    instagram: '@albaytuae',
+    source: 'Walking',
+    level: 'Cold',
+    status: 'New',
+    demoUrl: '',
+    proposalUrl: '',
+    assignedPlan: 'Starter',
+    priceQuoted: 1500,
+    lastContact: '2026-03-01',
+    notes: 'Traditional Arabic restaurant in JBR. No website at all. Saw them on a walk. Needs basic landing page with menu and reservation form.',
+    createdAt: '2026-03-01T14:00:00.000Z',
+  },
+];
+
+function loadLeads(): Lead[] {
+  if (typeof window === 'undefined') return SEED_LEADS;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null as unknown as Lead[];
+    return JSON.parse(raw) as Lead[];
+  } catch {
+    return null as unknown as Lead[];
+  }
+}
+
+function saveLeads(leads: Lead[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(leads));
+  } catch {
+    console.error('Failed to save leads to localStorage');
+  }
+}
 
 export default function Home() {
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -21,37 +102,42 @@ export default function Home() {
   const [editingLead, setEditingLead] = useState<Lead | undefined>(undefined);
   const [showPricing, setShowPricing] = useState(false);
 
-  const fetchLeads = useCallback(async () => {
-    try {
-      const res = await fetch('/api/leads');
-      const data = await res.json();
-      setLeads(data);
-    } finally {
-      setLoading(false);
+  const initLeads = useCallback(() => {
+    const stored = loadLeads();
+    if (stored === null) {
+      // First run — seed with example data
+      saveLeads(SEED_LEADS);
+      setLeads(SEED_LEADS);
+    } else {
+      setLeads(stored);
     }
+    setLoading(false);
   }, []);
 
   useEffect(() => {
-    fetchLeads();
-  }, [fetchLeads]);
+    initLeads();
+  }, [initLeads]);
 
-  const handleSave = async (data: LeadFormData) => {
-    if (editingLead) {
-      await fetch(`/api/leads/${editingLead.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-    } else {
-      await fetch('/api/leads', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-    }
+  const handleSave = (data: LeadFormData) => {
+    setLeads((prev) => {
+      let updated: Lead[];
+      if (editingLead) {
+        updated = prev.map((l) =>
+          l.id === editingLead.id ? { ...l, ...data } : l
+        );
+      } else {
+        const newLead: Lead = {
+          id: `lead_${Date.now()}`,
+          ...data,
+          createdAt: new Date().toISOString(),
+        };
+        updated = [...prev, newLead];
+      }
+      saveLeads(updated);
+      return updated;
+    });
     setShowForm(false);
     setEditingLead(undefined);
-    await fetchLeads();
   };
 
   const handleEdit = (lead: Lead) => {
@@ -59,14 +145,28 @@ export default function Home() {
     setShowForm(true);
   };
 
-  const handleDelete = async (id: string) => {
-    await fetch(`/api/leads/${id}`, { method: 'DELETE' });
-    await fetchLeads();
+  const handleDelete = (id: string) => {
+    setLeads((prev) => {
+      const updated = prev.filter((l) => l.id !== id);
+      saveLeads(updated);
+      return updated;
+    });
   };
 
   const handleAddNew = () => {
     setEditingLead(undefined);
     setShowForm(true);
+  };
+
+  const handleExport = () => {
+    const json = JSON.stringify(leads, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `webvanguard-leads-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const filtered = leads.filter((l) => {
@@ -113,6 +213,13 @@ export default function Home() {
               <p className="text-xs text-zinc-500">Dubai Lead Tracker</p>
             </div>
             <div className="flex gap-2">
+              <button
+                onClick={handleExport}
+                className="px-3 py-2 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 rounded-xl transition-colors"
+                title="Export leads as JSON backup"
+              >
+                📥 Export
+              </button>
               <button
                 onClick={() => setShowPricing(true)}
                 className="px-3 py-2 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 rounded-xl transition-colors"
